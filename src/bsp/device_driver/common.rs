@@ -15,11 +15,6 @@ impl<T> MIMODerefWrapper<T> {
 impl<T> ops::Deref for MIMODerefWrapper<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self.start_addr as *const Self::Target) }
-    }
-}
-impl<T> ops::DerefMut for MIMODerefWrapper<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self.start_addr as *mut Self::Target) }
+        unsafe { &*(self.start_addr as *const _) }
     }
 }
