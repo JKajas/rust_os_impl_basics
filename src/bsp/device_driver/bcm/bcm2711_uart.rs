@@ -1,0 +1,389 @@
+use crate::{bsp::common::MIMODerefWrapper, synchronization::NullLock};
+
+use core::ptr::{read_volatile, write_volatile};
+
+const UART_CLOCK: u32 = 48_000_000;
+enum Permission {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
+}
+pub enum ParityBit {
+    None,
+    Odd,
+    Even,
+}
+pub enum WordLength {
+    Bit8,
+    Bit7,
+    Bit6,
+    Bit5,
+}
+
+pub enum StopBits {
+    One,
+    Two,
+}
+struct Register {
+    offset: u8,
+    permission: Permission,
+}
+
+macro_rules! registers {
+    ($((REGISTER_NAME($register_name:ident), OFFSET($register_offset:expr), PERM($permission:expr))),+) => {
+        #[allow(non_snake_case)]
+        struct Registers{}
+        impl Registers{
+
+            $(const $register_name: Register = Register{offset: $register_offset, permission: $permission};)+
+        }
+    }
+}
+registers!(
+    (REGISTER_NAME(DR), OFFSET(0x00), PERM(Permission::ReadWrite)), // Data register
+    (
+        REGISTER_NAME(RSRECR),
+        OFFSET(0x04),
+        PERM(Permission::ReadWrite)
+    ),
+    (REGISTER_NAME(FR), OFFSET(0x18), PERM(Permission::ReadWrite)), // Flag register
+    (
+        REGISTER_NAME(ILPR),
+        OFFSET(0x20),
+        PERM(Permission::ReadWrite)
+    ), // Not in use
+    (
+        REGISTER_NAME(IBRD),
+        OFFSET(0x24),
+        PERM(Permission::ReadWrite)
+    ), // Integer Baud Rate divisor
+    (
+        REGISTER_NAME(FBRD),
+        OFFSET(0x28),
+        PERM(Permission::ReadWrite)
+    ), // Fractional Baud Rate divisor
+    (
+        REGISTER_NAME(LCRH),
+        OFFSET(0x2c),
+        PERM(Permission::ReadWrite)
+    ), // Line Control register
+    (REGISTER_NAME(CR), OFFSET(0x30), PERM(Permission::ReadWrite)), // Control register
+    (
+        REGISTER_NAME(IFLS),
+        OFFSET(0x34),
+        PERM(Permission::ReadWrite)
+    ), // Interrup FIFO Level Select Register
+    (
+        REGISTER_NAME(IMSC),
+        OFFSET(0x38),
+        PERM(Permission::ReadWrite)
+    ), // Interrup Mask Set Clear Register
+    (
+        REGISTER_NAME(RIS),
+        OFFSET(0x3c),
+        PERM(Permission::ReadWrite)
+    ), // Raw Interrupt Status Register
+    (
+        REGISTER_NAME(MIS),
+        OFFSET(0x40),
+        PERM(Permission::ReadWrite)
+    ), // Masked Interrupt Status Register
+    (
+        REGISTER_NAME(ICR),
+        OFFSET(0x44),
+        PERM(Permission::ReadWrite)
+    ), // Interrupt Clear Register
+    (
+        REGISTER_NAME(DMACR),
+        OFFSET(0x48),
+        PERM(Permission::ReadWrite)
+    ), // DMA Control Register
+    (
+        REGISTER_NAME(ITCR),
+        OFFSET(0x80),
+        PERM(Permission::ReadWrite)
+    ), // Test Control Register
+    (
+        REGISTER_NAME(ITIP),
+        OFFSET(0x84),
+        PERM(Permission::ReadWrite)
+    ), // Integration test input reg
+    (
+        REGISTER_NAME(ITOP),
+        OFFSET(0x88),
+        PERM(Permission::ReadWrite)
+    ), // Integration test output reg
+    (
+        REGISTER_NAME(TDR),
+        OFFSET(0x8c),
+        PERM(Permission::ReadWrite)
+    )  // Test Data reg
+);
+
+impl Registers {
+    unsafe fn write_to_reg<T>(&self, register: Register, data: T) -> Result<(), ()> {
+        let instruction = {
+            let register_address: isize =
+                self as *const Registers as isize + register.offset as isize;
+            write_volatile(register_address as *mut T, data);
+            Ok(())
+        };
+        match register.permission {
+            Permission::ReadOnly => panic!("Register is write only"),
+            Permission::WriteOnly => instruction,
+            Permission::ReadWrite => instruction,
+        }
+    }
+
+    unsafe fn read_reg<T>(&self, register: Register) -> Result<T, ()> {
+        let instruction = {
+            let register_address: isize =
+                self as *const Registers as isize + register.offset as isize;
+            let result = read_volatile(register_address as *mut T);
+            Ok(result)
+        };
+        match register.permission {
+            Permission::ReadOnly => instruction,
+            Permission::WriteOnly => panic!("Register is read only"),
+            Permission::ReadWrite => instruction,
+        }
+    }
+}
+type RegisterMapped = MIMODerefWrapper<Registers>;
+pub struct UartInner {
+    chars_written: usize,
+    chars_read: usize,
+    registers: RegisterMapped,
+    parity: ParityBit,
+    word_length: WordLength,
+    stop_bit: StopBits,
+}
+pub struct Uart {
+    pub inner: NullLock<UartInner>,
+}
+
+impl UartInner {
+    unsafe fn new(start_addr: usize) -> Self {
+        Self {
+            chars_read: 0,
+            chars_written: 0,
+            registers: RegisterMapped::new(start_addr),
+            parity: ParityBit::None,
+            word_length: WordLength::Bit8,
+            stop_bit: StopBits::One,
+        }
+    }
+    pub unsafe fn set_parity(&mut self, parity: ParityBit) {
+        let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
+        let cleared_state = state & !(0b11) << 1;
+        let _ = match parity {
+            ParityBit::None => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b0 << 1),
+            ParityBit::Even => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b11 << 1),
+            ParityBit::Odd => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b01 << 1),
+        };
+        self.parity = parity;
+    }
+    pub unsafe fn set_length(&mut self, length: WordLength) {
+        let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
+        let cleared_state = state & !(0b11) << 5;
+        let _ = match length {
+            WordLength::Bit5 => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b00 << 5),
+            WordLength::Bit6 => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b01 << 5),
+            WordLength::Bit7 => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b10 << 5),
+            WordLength::Bit8 => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b11 << 5),
+        };
+        self.word_length = length
+    }
+
+    pub unsafe fn set_stop_bits(&mut self, stop_bit: StopBits) {
+        let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
+        let cleared_state = state & !(1 << 3);
+        let _ = match stop_bit {
+            StopBits::One => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b0 << 3),
+            StopBits::Two => self
+                .registers
+                .write_to_reg(Registers::LCRH, cleared_state | 0b1 << 3),
+        };
+        self.stop_bit = stop_bit
+    }
+    pub unsafe fn enable_fifo(&self) {
+        let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
+        let cleared_state = state & !(1 << 4);
+        self.registers
+            .write_to_reg(Registers::LCRH, cleared_state | 0b1 << 4);
+    }
+    pub unsafe fn disable_fifo(&self) {
+        let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
+        let cleared_state = state & !(1 << 4);
+        self.registers.write_to_reg(Registers::LCRH, cleared_state);
+    }
+    pub unsafe fn flush(&self) {
+        let flag_register_state = self.registers.read_reg::<u32>(Registers::FR).unwrap();
+        if flag_register_state & (1 << 7) == flag_register_state & !(1 << 7) {
+            //Default FIFO interrupts processor while exceeds 1/2 capacity
+            // Transmit FIFO is not empty
+            self.disable_fifo();
+            self.enable_fifo();
+        } else if (flag_register_state & 1 << 4) == flag_register_state & !(1 << 4) {
+            // Receive FIFO is not empty
+            for i in 0..16 + 1 {
+                //Default FIFO interrupts processor while exceeds 1/2 capacity
+                self.registers.read_reg::<u32>(Registers::DR);
+            }
+        }
+    }
+    pub fn calculate_baud_rate(&self, baud_rate: u32) -> (u16, u8) {
+        let permissible_error_value: f32 = 1.0 / 64.0 * 100.0;
+
+        let baud_rate_divider_base: f32 = UART_CLOCK as f32 / (16.0 * baud_rate as f32);
+        let integer_part: u16 = baud_rate_divider_base as u16;
+
+        let fractional: f32 = baud_rate_divider_base - integer_part as f32;
+        let fractional_part: u8 = ((fractional * 64.0) + 0.5) as u8;
+
+        let generated_baud_rate: f32 =
+            UART_CLOCK as f32 / (16.0 * (integer_part as f32 + (fractional_part as f32 / 64.0)));
+        let error = (generated_baud_rate - baud_rate as f32) / baud_rate as f32 * 100.0;
+        if error > permissible_error_value {
+            panic!("Baud rate error too high!");
+        }
+        (integer_part, fractional_part)
+    }
+    pub unsafe fn set_baud_rate(&self, i_part: u16, f_part: u8) {
+        if f_part > 0b111111 {
+            panic!("Fractional part should be max 6 bits");
+        }
+        self.registers.write_to_reg(Registers::IBRD, i_part);
+        self.registers.write_to_reg(Registers::FBRD, f_part);
+    }
+    pub unsafe fn read_data(&self, data: &mut [u8]) {}
+    pub unsafe fn write_data(&self, data: &[u8]) {}
+
+    pub unsafe fn init(
+        &mut self,
+        parity: ParityBit,
+        length: WordLength,
+        stop_bit: StopBits,
+        baud_rate: u32,
+    ) {
+        //enable UART
+        self.registers.write_to_reg(Registers::CR, 0b11 << 8 | 0b1);
+        // Set baud rate
+        let (integer_part, fractional_part) = self.calculate_baud_rate(baud_rate);
+        self.set_baud_rate(integer_part, fractional_part);
+        // Flush FIFO
+        //
+        self.flush();
+        //Set parity bit
+        self.set_parity(parity);
+        //Set Word Length
+        self.set_length(length);
+        // Set Stop bit
+        self.set_stop_bits(stop_bit);
+
+        /*
+        for c in "Test\n".chars() {
+            self.registers.write_to_reg(Registers::DR, c as u32);
+        }
+        */
+        //crate::println!("{:x?}", 13);
+        let i = read_volatile(0xff841D10 as *const i32);
+        crate::println!("{:x?}", i);
+    }
+}
+impl Uart {
+    pub unsafe fn new(start_addr: usize) -> Self {
+        Self {
+            inner: NullLock::new(UartInner::new(start_addr)),
+        }
+    }
+}
+
+#[allow(non_camel_case_types)]
+trait IRQ_getter {
+    unsafe fn get_irq_code(&self) -> u16;
+}
+#[repr(u16)]
+enum IRQs {
+    OVERRUN = 1 << 10,
+    BREAK = 1 << 9,
+    PARITY = 1 << 8,
+    FRAMING = 1 << 7,
+    TIMEOUT = 1 << 6,
+    TX = 1 << 5,
+    RX = 1 << 4,
+    DSR = 1 << 3,
+    DCD = 1 << 2,
+    CTS = 1 << 1,
+    RI = 1,
+}
+#[allow(non_camel_case_types)]
+#[repr(u16)]
+enum FIFO_IRQs {
+    RX_1_8 = 0b000111,
+    RX_1_4 = 0b001 << 3,
+    RX_1_2 = 0b010 << 3,
+    RX_3_4 = 0b011 << 3,
+    RX_7_8 = 0b100 << 3,
+    TX_1_8 = 0b000,
+    TX_1_4 = 0b001,
+    TX_1_2 = 0b010,
+    TX_3_4 = 0b011,
+    TX_7_8 = 0b100,
+}
+#[allow(non_camel_case_types)]
+trait UART_IRQ_handler {
+    const IRQ_ID: i8 = 57;
+    const PACTL_CS: *const usize = 0xFE20_4E00 as *const usize;
+    unsafe fn get_irq_source_interface(&self) -> () {
+        let interfaces = read_volatile(Self::PACTL_CS);
+        match interfaces {
+            interface if interfaces == 1 << 16 => {} // UART5
+            interface if interfaces == 1 << 17 => {} // UART4
+            interface if interfaces == 1 << 18 => {} // UART3
+            interface if interfaces == 1 << 19 => {} // UART2
+            interface if interfaces == 1 << 20 => {} // UART0
+            _ => 0,
+        }
+
+        let id = Self::IRQ_ID;
+    }
+
+    fn get_irq_interface_id(&self) -> usize;
+    unsafe fn get_irq_code(&self) -> u16;
+    unsafe fn get_fifo_irq_code(&self) -> u16;
+    unsafe fn handle_irq(&self) -> () {
+        let interruption = self.get_irq_code();
+        match interruption {
+            interruption if interruption == IRQs::OVERRUN as u16 => {}
+            interruption if interruption == IRQs::BREAK as u16 => {}
+            interruption if interruption == IRQs::PARITY as u16 => {}
+            interruption if interruption == IRQs::FRAMING as u16 => {}
+            interruption if interruption == IRQs::TIMEOUT as u16 => {}
+            interruption if interruption == IRQs::TX as u16 => {}
+            interruption if interruption == IRQs::RX as u16 => {}
+            interruption if interruption == IRQs::DSR as u16 => {}
+            interruption if interruption == IRQs::DCD as u16 => {}
+            interruption if interruption == IRQs::CTS as u16 => {}
+            interruption if interruption == IRQs::RI as u16 => {}
+            0 => {}
+            _ => panic!("No handler"),
+        }
+    }
+}
