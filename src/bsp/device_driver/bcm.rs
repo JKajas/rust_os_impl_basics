@@ -1,2 +1,3 @@
-pub mod bcm2xxx_uart;
-pub use bcm2xxx_uart::*;
+pub mod bcm2711_irq;
+pub mod bcm2711_uart;
+pub use bcm2711_uart::*;

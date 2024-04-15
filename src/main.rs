@@ -8,6 +8,5 @@ mod print;
 mod synchronization;
 
 pub fn kernel_init() -> ! {
-    println!("Hello WORLD!");
     panic!("Stopping here");
 }
