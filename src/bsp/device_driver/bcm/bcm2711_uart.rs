@@ -303,8 +303,6 @@ impl UartInner {
         }
         */
         //crate::println!("{:x?}", 13);
-        let i = read_volatile(0xff841D10 as *const i32);
-        crate::println!("{:x?}", i);
     }
 }
 impl Uart {
@@ -351,37 +349,23 @@ enum FIFO_IRQs {
 trait UART_IRQ_handler {
     const IRQ_ID: i8 = 57;
     const PACTL_CS: *const usize = 0xFE20_4E00 as *const usize;
-    unsafe fn get_irq_source_interface(&self) -> () {
-        let interfaces = read_volatile(Self::PACTL_CS);
-        match interfaces {
-            interface if interfaces == 1 << 16 => {} // UART5
-            interface if interfaces == 1 << 17 => {} // UART4
-            interface if interfaces == 1 << 18 => {} // UART3
-            interface if interfaces == 1 << 19 => {} // UART2
-            interface if interfaces == 1 << 20 => {} // UART0
-            _ => 0,
-        }
-
-        let id = Self::IRQ_ID;
-    }
-
     fn get_irq_interface_id(&self) -> usize;
     unsafe fn get_irq_code(&self) -> u16;
     unsafe fn get_fifo_irq_code(&self) -> u16;
     unsafe fn handle_irq(&self) -> () {
         let interruption = self.get_irq_code();
         match interruption {
-            interruption if interruption == IRQs::OVERRUN as u16 => {}
-            interruption if interruption == IRQs::BREAK as u16 => {}
-            interruption if interruption == IRQs::PARITY as u16 => {}
-            interruption if interruption == IRQs::FRAMING as u16 => {}
-            interruption if interruption == IRQs::TIMEOUT as u16 => {}
-            interruption if interruption == IRQs::TX as u16 => {}
-            interruption if interruption == IRQs::RX as u16 => {}
-            interruption if interruption == IRQs::DSR as u16 => {}
-            interruption if interruption == IRQs::DCD as u16 => {}
-            interruption if interruption == IRQs::CTS as u16 => {}
-            interruption if interruption == IRQs::RI as u16 => {}
+            irq if interruption == IRQs::OVERRUN as u16 => {}
+            irq if interruption == IRQs::BREAK as u16 => {}
+            irq if interruption == IRQs::PARITY as u16 => {}
+            irq if interruption == IRQs::FRAMING as u16 => {}
+            irq if interruption == IRQs::TIMEOUT as u16 => {}
+            irq if interruption == IRQs::TX as u16 => {}
+            irq if interruption == IRQs::RX as u16 => {}
+            irq if interruption == IRQs::DSR as u16 => {}
+            irq if interruption == IRQs::DCD as u16 => {}
+            irq if interruption == IRQs::CTS as u16 => {}
+            irq if interruption == IRQs::RI as u16 => {}
             0 => {}
             _ => panic!("No handler"),
         }
