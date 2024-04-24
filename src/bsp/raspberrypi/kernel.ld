@@ -24,7 +24,9 @@ SECTIONS
   .text :
   {
 
+    KEEP(*(.text.vector_table))
     KEEP(*(.text._start))
+    *(.text.handlers)
     *(.text._start_argument)
     *(.text._start_rust)
     *(.text*)

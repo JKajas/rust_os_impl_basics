@@ -7,21 +7,8 @@
 
 // Interrupt Vector table for ARM
 _start:
-    b .L_boot
-    b _reset
-    b _reset
-    b _reset
-    b _reset
-    b _reset
-    b irq_handler
-    b fiq_handler
-
-
-_reset:
   b .L_boot
 
-fiq_handler:
-  b _start
   
 .L_boot:
 	mrs x0, MPIDR_EL1
