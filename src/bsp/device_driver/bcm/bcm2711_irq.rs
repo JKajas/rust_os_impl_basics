@@ -17,7 +17,9 @@ const MIMOIRQ: [*const u32; 5] = [
 ]; // All segments where IRQ occures
 
 #[no_mangle]
+#[link_section = ".text.handlers"]
 async unsafe fn irq_handler() -> () {
+    panic!("Test");
     let ids: [u32; 5] = core::array::from_fn(|i| read_volatile(MIMOIRQ[i]));
     if (ids[0] & !(0 << 15)).count_ones() > 0 {}
     if ids[0] & 1 << 16 == 1 << 16 {}
@@ -34,7 +36,7 @@ async unsafe fn irq_handler() -> () {
     if ids[4].count_ones() > 0 {}
 }
 #[allow(non_camel_case_types)]
-struct VC_IRQ {}
+struct VC_IRQ;
 #[repr(u32)]
 #[allow(non_camel_case_types)]
 enum UART_interfaces {
