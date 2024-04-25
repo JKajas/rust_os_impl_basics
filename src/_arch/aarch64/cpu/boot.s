@@ -28,7 +28,7 @@ _start:
 	b .L_bss_init_loop
 
 .L_prepare_rust:
-//	ADR_REL x0, __boot_core_stack_end_executive
+  ADR_REL x0, __boot_core_stack_end_executive
 	mov sp, x0
 	b _start_rust
 

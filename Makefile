@@ -12,7 +12,7 @@ LAST_BUILD_CONFIG = target/rpi4.build_config
 KERNEL_ELF      = target/$(TARGET)/release/kernel
 KERNEL_ELF_DEPS = $(filter-out %: ,$(file < $(KERNEL_ELF).d)) $(KERNEL_MANIFEST) $(LAST_BUILD_CONFIG)
 LAST_BUILD_CONFIG    = target/rpi4.build_config
-CONFIG_DTS = dtb/config.dts
+CONFIG_DTS = dtb/init_uart_clock.dts
 CONFIG_DTB = dtb/config.dtbo
 DTB = combined.dtb
 RUSTFLAGS = $(RUSTC_MISC_ARGS) \
@@ -56,6 +56,9 @@ $(CONFIG_DTB): $(CONFIG_DTS)
 $(DTB): $(CONFIG_DTB)
 	fdtoverlay -o  $(DTB) -i dtb/bcm2711-rpi-4-b.dtb $(CONFIG_DTB)
 
+
+test.dtb: ./test.dts
+	dtc -I dts -O dtb -o test.dtb ./test.dts
 
 qemu: $(KERNEL_BIN) $(DTB)
 	qemu-system-aarch64 -M $(QEMU_MACHINE_TYPE) -dtb $(DTB) -cpu $(CPU_TARGET) -kernel $(KERNEL_BIN) -monitor telnet:127.0.0.1:55555,server,nowait -serial stdio

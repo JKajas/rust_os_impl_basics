@@ -1,6 +1,9 @@
 use crate::{bsp::common::MIMODerefWrapper, synchronization::NullLock};
 
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    arch::asm,
+    ptr::{read_volatile, write_volatile},
+};
 
 const UART_CLOCK: u32 = 48_000_000;
 enum Permission {
@@ -297,12 +300,13 @@ impl UartInner {
         // Set Stop bit
         self.set_stop_bits(stop_bit);
 
-        /*
-        for c in "Test\n".chars() {
-            self.registers.write_to_reg(Registers::DR, c as u32);
-        }
-        */
-        //crate::println!("{:x?}", 13);
+        let r: u64 = 0;
+        asm!(
+            "mrs x29, CNTFRQ_EL0
+            str x29, [{}]",
+            in(reg) &r
+        );
+        self.registers.write_to_reg(Registers::DR, r);
     }
 }
 impl Uart {

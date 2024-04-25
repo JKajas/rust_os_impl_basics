@@ -9,9 +9,9 @@ mod panic_wait;
 mod print;
 mod synchronization;
 
-pub fn kernel_init() -> ! {
+pub fn kernel_init() -> () {
     use bsp::bcm::bcm2711_uart::Uart;
-    let uart = unsafe { Uart::new(0xFE20_1000) };
+    let uart = unsafe { Uart::new(0x0_FE20_1000) };
     unsafe {
         uart.inner.lock(|inner| {
             inner.init(
