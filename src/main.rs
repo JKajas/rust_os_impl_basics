@@ -20,7 +20,8 @@ pub fn kernel_init() -> () {
                 bsp::bcm::StopBits::One,
                 115200,
             )
-        })
+        });
+        bsp::bcm::read_uart_clock();
     };
     panic!("Stopping here");
 }

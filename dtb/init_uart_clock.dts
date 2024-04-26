@@ -4,9 +4,8 @@
   fragment@0 {
     target=<0x43>;
     __overlay__ {
-      status = "disabled";
       assigned-clocks = <0x08 0x13>;
-      assigned-clocks-rates = <0x1c9c380>;
+      assigned-clocks-rates = <30000000>;
     };
   };
 };

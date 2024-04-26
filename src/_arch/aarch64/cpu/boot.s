@@ -5,11 +5,12 @@
 
 .section .text._start
 
-// Interrupt Vector table for ARM
+// Vector table here for ARM
 _start:
-  b .L_boot
+  ldr x1, =adr_dtb
+  str x0, [x1]
+  ldr x10, adr_dtb
 
-  
 .L_boot:
 	mrs x0, MPIDR_EL1
 	and x0, x0, 0b11
@@ -37,7 +38,9 @@ _start:
 	b .L_loop
 
 
+
 .size _start, . - _start
 .type _start, function
 .global _start
 
+adr_dtb: .quad

@@ -4,8 +4,31 @@ use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
 };
+use fdt::Fdt;
 
-const UART_CLOCK: u32 = 48_000_000;
+static mut UART_CLOCK: u32 = 48_000_000;
+
+// Required ftd/dtb file with overlay assigning clock rate for uart clock
+pub unsafe fn read_uart_clock() -> &'static u32 {
+    let dtb_pointer: *const u8 = 0x0 as *const u8;
+    asm!("ldr x0, adr_dtb
+            str x0, [{}]", in(reg) &dtb_pointer);
+    let dtb: Fdt = Fdt::from_ptr(dtb_pointer).expect("No dtb file");
+    if let Some(clk_rate_prop) = dtb
+        .find_phandle(0x43)
+        .unwrap_or_else(|| panic!("No UART config"))
+        .property("assigned-clocks-rates")
+    {
+        UART_CLOCK = clk_rate_prop
+            .as_usize()
+            .expect("Error while parsing clock value!") as u32;
+        &UART_CLOCK
+    } else {
+        crate::println!("Clock value is not appeared in dtb file. Default value loaded");
+        &UART_CLOCK
+    }
+}
+
 enum Permission {
     ReadOnly,
     WriteOnly,
@@ -251,7 +274,7 @@ impl UartInner {
             }
         }
     }
-    pub fn calculate_baud_rate(&self, baud_rate: u32) -> (u16, u8) {
+    pub unsafe fn calculate_baud_rate(&self, baud_rate: u32) -> (u16, u8) {
         let permissible_error_value: f32 = 1.0 / 64.0 * 100.0;
 
         let baud_rate_divider_base: f32 = UART_CLOCK as f32 / (16.0 * baud_rate as f32);
@@ -285,6 +308,9 @@ impl UartInner {
         stop_bit: StopBits,
         baud_rate: u32,
     ) {
+        // Read uart clock from ftd/dtb file
+        read_uart_clock();
+
         //enable UART
         self.registers.write_to_reg(Registers::CR, 0b11 << 8 | 0b1);
         // Set baud rate
