@@ -5,7 +5,8 @@
 
 .section .text._start
 
-// Vector table here for ARM
+// Vector table here for ARM from exceptions.s
+
 _start:
   ldr x1, =adr_dtb
   str x0, [x1]
