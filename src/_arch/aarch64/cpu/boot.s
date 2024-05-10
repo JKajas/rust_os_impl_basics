@@ -8,6 +8,7 @@
 // Vector table here for ARM from exceptions.s
 
 _start:
+  // Change DTB pointer position from x1 to x10 for future usage by kernel
   ldr x1, =adr_dtb
   str x0, [x1]
   ldr x10, adr_dtb

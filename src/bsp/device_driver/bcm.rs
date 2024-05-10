@@ -18,10 +18,10 @@ pub unsafe fn init_drivers() {
         )
     };
     uart_manager.register_driver(&mut UART);
-    register_console(&mut UART);
-    uart_manager.init_drivers();
     crate::println!("Console registered successfully!\n");
+    register_console(&mut UART);
     crate::println!("Starting driver initialization...\n");
+    uart_manager.init_drivers();
     crate::println!("Drivers initialized successfully!\n");
 }
 

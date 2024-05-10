@@ -342,7 +342,7 @@ impl UartInner {
         (integer_part, fractional_part)
     }
     pub unsafe fn set_baud_rate(&self, i_part: u16, f_part: u8) {
-        if f_part > 0b111111 {
+        if f_part > !(0 << 6) {
             panic!("Fractional part should be max 6 bits");
         }
         self.registers.write_to_reg(Registers::IBRD, i_part);
