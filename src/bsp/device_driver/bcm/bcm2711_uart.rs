@@ -248,11 +248,12 @@ impl UartInner {
             self.parity = parity_present;
         }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(0b11) << 1;
+        let mask = state | (0b11 << 1); // | 0b111
+        let cleared_state = mask ^ (0b11 << 1); // ^ 0b111
         let _ = match self.parity {
             ParityBit::None => self
                 .registers
-                .write_to_reg(Registers::LCRH, cleared_state | 0b0 << 1),
+                .write_to_reg(Registers::LCRH, cleared_state | 0b00 << 1),
             ParityBit::Even => self
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b11 << 1),
@@ -266,7 +267,8 @@ impl UartInner {
             self.word_length = length_present;
         }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(0b11) << 5;
+        let mask = state | (0b11 << 5);
+        let cleared_state = mask ^ (0b11 << 5);
         let _ = match self.word_length {
             WordLength::Bit5 => self
                 .registers
@@ -288,7 +290,8 @@ impl UartInner {
             self.stop_bit = stop_bit_present;
         }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(1 << 3);
+        let mask = state | (1 << 3);
+        let cleared_state = state ^ (1 << 3);
         let _ = match self.stop_bit {
             StopBits::One => self
                 .registers

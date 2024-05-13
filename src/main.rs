@@ -10,6 +10,7 @@ mod synchronization;
 
 use bsp::bcm::init_drivers;
 
-pub fn kernel_init() -> () {
+pub fn kernel_init() -> ! {
     unsafe { init_drivers() }
+    panic!("STOP");
 }

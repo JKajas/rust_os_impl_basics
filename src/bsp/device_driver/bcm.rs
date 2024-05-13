@@ -14,13 +14,13 @@ pub unsafe fn init_drivers() {
             ParityBit::None,
             WordLength::Bit8,
             StopBits::One,
-            115200,
+            9600,
         )
     };
     uart_manager.register_driver(&mut UART);
-    crate::println!("Console registered successfully!\n");
     register_console(&mut UART);
-    crate::println!("Starting driver initialization...\n");
+    //crate::println!("Console registered successfully!\n");
+    //crate::println!("Starting driver initialization...\n");
     uart_manager.init_drivers();
     crate::println!("Drivers initialized successfully!\n");
 }
