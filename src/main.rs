@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use crate::synchronization::interface::Mutex;
 mod bsp;
 mod console;
 mod cpu;
@@ -9,18 +8,9 @@ mod panic_wait;
 mod print;
 mod synchronization;
 
+use bsp::bcm::init_drivers;
+
 pub fn kernel_init() -> ! {
-    use bsp::bcm::bcm2711_uart::Uart;
-    let uart = unsafe { Uart::new(0xFE20_1000) };
-    unsafe {
-        uart.inner.lock(|inner| {
-            inner.init(
-                bsp::bcm::ParityBit::None,
-                bsp::bcm::WordLength::Bit8,
-                bsp::bcm::StopBits::One,
-                115200,
-            )
-        })
-    };
-    panic!("Stopping here");
+    unsafe { init_drivers() }
+    panic!("STOP");
 }

@@ -1,3 +1,4 @@
+use crate::bsp::device_driver::bcm::Uart;
 use crate::{console, synchronization, synchronization::NullLock};
 use core::fmt;
 
@@ -9,6 +10,7 @@ struct QEMUOutput {
     inner: NullLock<QEMUOutputInner>,
 }
 static QEMU_OUTPUT: QEMUOutput = QEMUOutput::new();
+static mut UART_CONSOLE: Option<&mut Uart> = None;
 
 impl QEMUOutputInner {
     const fn new() -> Self {
@@ -41,7 +43,12 @@ impl QEMUOutput {
     }
 }
 pub fn console() -> &'static dyn console::interface::All {
-    &QEMU_OUTPUT
+    unsafe {
+        if let Some(uart) = &UART_CONSOLE {
+            return uart;
+        }
+        panic!("No initialized uart console!")
+    }
 }
 use synchronization::interface::Mutex;
 
@@ -56,3 +63,14 @@ impl console::interface::Statistics for QEMUOutput {
     }
 }
 impl console::interface::All for QEMUOutput {}
+
+//_____________________________________________________________
+//
+//  OUTSIDE CONSOLE
+//_________________________________________
+//
+pub fn register_console(driver: &'static mut Uart) {
+    unsafe {
+        UART_CONSOLE = Some(driver);
+    }
+}

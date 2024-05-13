@@ -5,11 +5,14 @@
 
 .section .text._start
 
-// Interrupt Vector table for ARM
-_start:
-  b .L_boot
+// Vector table here for ARM from exceptions.s
 
-  
+_start:
+  // Change DTB pointer position from x1 to x10 for future usage by kernel
+  ldr x1, =adr_dtb
+  str x0, [x1]
+  ldr x10, adr_dtb
+
 .L_boot:
 	mrs x0, MPIDR_EL1
 	and x0, x0, 0b11
@@ -28,7 +31,7 @@ _start:
 	b .L_bss_init_loop
 
 .L_prepare_rust:
-//	ADR_REL x0, __boot_core_stack_end_executive
+  ADR_REL x0, __boot_core_stack_end_executive
 	mov sp, x0
 	b _start_rust
 
@@ -37,7 +40,9 @@ _start:
 	b .L_loop
 
 
+
 .size _start, . - _start
 .type _start, function
 .global _start
 
+adr_dtb: .quad

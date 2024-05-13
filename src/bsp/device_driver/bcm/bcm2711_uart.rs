@@ -1,8 +1,35 @@
 use crate::{bsp::common::MIMODerefWrapper, synchronization::NullLock};
 
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    arch::asm,
+    fmt::{self, Write},
+    ptr::{read_volatile, write_volatile},
+};
+use fdt::Fdt;
 
-const UART_CLOCK: u32 = 48_000_000;
+static mut UART_CLOCK: u32 = 48_000_000;
+
+// Required ftd/dtb file with overlay assigning clock rate for uart clock
+pub unsafe fn read_uart_clock() -> &'static u32 {
+    let dtb_pointer: *const u8 = 0x0 as *const u8;
+    asm!("ldr x0, adr_dtb
+            str x0, [{}]", in(reg) &dtb_pointer);
+    let dtb: Fdt = Fdt::from_ptr(dtb_pointer).expect("No dtb file");
+    if let Some(clk_rate_prop) = dtb
+        .find_phandle(0x43)
+        .unwrap_or_else(|| panic!("No UART config"))
+        .property("assigned-clocks-rates")
+    {
+        UART_CLOCK = clk_rate_prop
+            .as_usize()
+            .expect("Error while parsing clock value!") as u32;
+        &UART_CLOCK
+    } else {
+        crate::println!("Clock value is not appeared in dtb file. Default value loaded");
+        &UART_CLOCK
+    }
+}
+
 enum Permission {
     ReadOnly,
     WriteOnly,
@@ -157,29 +184,76 @@ pub struct UartInner {
     parity: ParityBit,
     word_length: WordLength,
     stop_bit: StopBits,
+    baud_rate: u32,
 }
 pub struct Uart {
     pub inner: NullLock<UartInner>,
 }
 
+impl MutexControll for Uart {
+    type M = NullLock<UartInner>;
+    unsafe fn get_inner(&mut self) -> &Self::M {
+        &self.inner
+    }
+}
+impl Write for UartInner {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for c in s.chars() {
+            if c == 0x0a as char {
+                self.write_char(0x0a as char);
+                self.write_char(0x0d as char);
+            }
+            self.write_char(c)
+        }
+        Ok(())
+    }
+}
+use crate::synchronization::interface::Mutex;
+
+use super::{InitDriverTrait, MutexControll};
+impl crate::console::interface::Write for &mut Uart {
+    fn write_fmt(&self, args: fmt::Arguments) -> fmt::Result {
+        self.inner.lock(|inner| fmt::Write::write_fmt(inner, args))
+    }
+}
+impl crate::console::interface::Statistics for &mut Uart {
+    fn chars_written(&self) -> usize {
+        self.inner.lock(|inner| inner.chars_written)
+    }
+}
+
+impl crate::console::interface::All for &mut Uart {}
+
 impl UartInner {
-    unsafe fn new(start_addr: usize) -> Self {
+    const unsafe fn new(
+        start_addr: usize,
+        parity: ParityBit,
+        word_length: WordLength,
+        stop_bit: StopBits,
+        baud_rate: u32,
+    ) -> Self {
         Self {
             chars_read: 0,
             chars_written: 0,
             registers: RegisterMapped::new(start_addr),
-            parity: ParityBit::None,
-            word_length: WordLength::Bit8,
-            stop_bit: StopBits::One,
+            parity,
+            word_length,
+            stop_bit,
+            baud_rate,
         }
     }
-    pub unsafe fn set_parity(&mut self, parity: ParityBit) {
+    pub unsafe fn set_parity(&mut self, parity: Option<ParityBit>) {
+        // If settings are made by hand
+        if let Some(parity_present) = parity {
+            self.parity = parity_present;
+        }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(0b11) << 1;
-        let _ = match parity {
+        let mask = state | (0b11 << 1); // | 0b111
+        let cleared_state = mask ^ (0b11 << 1); // ^ 0b111
+        let _ = match self.parity {
             ParityBit::None => self
                 .registers
-                .write_to_reg(Registers::LCRH, cleared_state | 0b0 << 1),
+                .write_to_reg(Registers::LCRH, cleared_state | 0b00 << 1),
             ParityBit::Even => self
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b11 << 1),
@@ -187,12 +261,15 @@ impl UartInner {
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b01 << 1),
         };
-        self.parity = parity;
     }
-    pub unsafe fn set_length(&mut self, length: WordLength) {
+    pub unsafe fn set_length(&mut self, length: Option<WordLength>) {
+        if let Some(length_present) = length {
+            self.word_length = length_present;
+        }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(0b11) << 5;
-        let _ = match length {
+        let mask = state | (0b11 << 5);
+        let cleared_state = mask ^ (0b11 << 5);
+        let _ = match self.word_length {
             WordLength::Bit5 => self
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b00 << 5),
@@ -206,13 +283,16 @@ impl UartInner {
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b11 << 5),
         };
-        self.word_length = length
     }
 
-    pub unsafe fn set_stop_bits(&mut self, stop_bit: StopBits) {
+    pub unsafe fn set_stop_bits(&mut self, stop_bit: Option<StopBits>) {
+        if let Some(stop_bit_present) = stop_bit {
+            self.stop_bit = stop_bit_present;
+        }
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
-        let cleared_state = state & !(1 << 3);
-        let _ = match stop_bit {
+        let mask = state | (1 << 3);
+        let cleared_state = state ^ (1 << 3);
+        let _ = match self.stop_bit {
             StopBits::One => self
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b0 << 3),
@@ -220,7 +300,6 @@ impl UartInner {
                 .registers
                 .write_to_reg(Registers::LCRH, cleared_state | 0b1 << 3),
         };
-        self.stop_bit = stop_bit
     }
     pub unsafe fn enable_fifo(&self) {
         let state = self.registers.read_reg::<u32>(Registers::LCRH).unwrap();
@@ -248,7 +327,7 @@ impl UartInner {
             }
         }
     }
-    pub fn calculate_baud_rate(&self, baud_rate: u32) -> (u16, u8) {
+    pub unsafe fn calculate_baud_rate(&self, baud_rate: u32) -> (u16, u8) {
         let permissible_error_value: f32 = 1.0 / 64.0 * 100.0;
 
         let baud_rate_divider_base: f32 = UART_CLOCK as f32 / (16.0 * baud_rate as f32);
@@ -266,49 +345,64 @@ impl UartInner {
         (integer_part, fractional_part)
     }
     pub unsafe fn set_baud_rate(&self, i_part: u16, f_part: u8) {
-        if f_part > 0b111111 {
+        if f_part > !(0 << 6) {
             panic!("Fractional part should be max 6 bits");
         }
         self.registers.write_to_reg(Registers::IBRD, i_part);
         self.registers.write_to_reg(Registers::FBRD, f_part);
     }
     pub unsafe fn read_data(&self, data: &mut [u8]) {}
-    pub unsafe fn write_data(&self, data: &[u8]) {}
+    pub unsafe fn write_data(&mut self, data: &[u8]) {
+        self.chars_written = 0;
+        for byte in data {
+            self.registers.write_to_reg(Registers::DR, byte);
+            self.chars_written += 1
+        }
+    }
+    pub fn write_char(&mut self, c: char) {
+        unsafe { self.registers.write_to_reg(Registers::DR, c).unwrap() }
+        self.chars_written += 1;
+    }
+}
 
-    pub unsafe fn init(
-        &mut self,
-        parity: ParityBit,
-        length: WordLength,
-        stop_bit: StopBits,
-        baud_rate: u32,
-    ) {
+impl InitDriverTrait for UartInner {
+    unsafe fn init_driver(&mut self) {
+        // Read uart clock from ftd/dtb file
+        read_uart_clock();
+
         //enable UART
         self.registers.write_to_reg(Registers::CR, 0b11 << 8 | 0b1);
         // Set baud rate
-        let (integer_part, fractional_part) = self.calculate_baud_rate(baud_rate);
+        let (integer_part, fractional_part) = self.calculate_baud_rate(self.baud_rate);
         self.set_baud_rate(integer_part, fractional_part);
+
         // Flush FIFO
-        //
         self.flush();
         //Set parity bit
-        self.set_parity(parity);
-        //Set Word Length
-        self.set_length(length);
-        // Set Stop bit
-        self.set_stop_bits(stop_bit);
+        self.set_parity(None);
 
-        /*
-        for c in "Test\n".chars() {
-            self.registers.write_to_reg(Registers::DR, c as u32);
-        }
-        */
-        //crate::println!("{:x?}", 13);
+        //Set Word Length
+        self.set_length(None);
+        // Set Stop bit
+        self.set_stop_bits(None);
     }
 }
 impl Uart {
-    pub unsafe fn new(start_addr: usize) -> Self {
+    pub const unsafe fn new(
+        start_addr: usize,
+        parity: ParityBit,
+        word_length: WordLength,
+        stop_bit: StopBits,
+        baud_rate: u32,
+    ) -> Self {
         Self {
-            inner: NullLock::new(UartInner::new(start_addr)),
+            inner: NullLock::new(UartInner::new(
+                start_addr,
+                parity,
+                word_length,
+                stop_bit,
+                baud_rate,
+            )),
         }
     }
 }

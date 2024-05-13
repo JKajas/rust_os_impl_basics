@@ -1,1 +1,6 @@
 /target
+kernel8.img
+combined.dtb
+/dtb/bcm2711.*
+/dtb/config.*
+/boot

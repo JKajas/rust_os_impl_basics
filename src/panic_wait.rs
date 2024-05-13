@@ -21,8 +21,11 @@ fn panic(info: &PanicInfo) -> ! {
         _ => ("???", 0, 0),
     };
     println!(
-        "Kernel panic!\n\n Panic location:\n      File {}, line {}, column {}\n\n",
-        location, line, column
+        "Kernel panic!\n\n Panic location:\n      Info: {:?} File {}, line {}, column {}\n\n",
+        info.payload().downcast_ref::<&str>(),
+        location,
+        line,
+        column
     );
     cpu::wait_forever()
 }
