@@ -1,3 +1,4 @@
+pub mod bcm2711_gpio;
 pub mod bcm2711_irq;
 pub mod bcm2711_uart;
 
