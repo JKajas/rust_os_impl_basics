@@ -2,7 +2,10 @@ pub mod bcm2711_gpio;
 pub mod bcm2711_irq;
 pub mod bcm2711_uart;
 
-use crate::bsp::console::register_console;
+use crate::bsp::{
+    bcm::bcm2711_gpio::{GPIODriver, GPIOFunction},
+    console::register_console,
+};
 pub use bcm2711_uart::*;
 
 use crate::synchronization::interface::Mutex;
@@ -18,10 +21,12 @@ pub unsafe fn init_drivers() {
             9600,
         )
     };
+    static mut GPIO0: GPIODriver = unsafe { GPIODriver::new(0, GPIOFunction::Alt0) };
     uart_manager.register_driver(&mut UART);
     register_console(&mut UART);
     //crate::println!("Console registered successfully!\n");
     //crate::println!("Starting driver initialization...\n");
+    GPIO0.init();
     uart_manager.init_drivers();
     crate::println!("Drivers initialized successfully!\n");
 }
