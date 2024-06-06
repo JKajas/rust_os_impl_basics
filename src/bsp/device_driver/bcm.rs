@@ -21,18 +21,17 @@ pub unsafe fn init_drivers() {
             9600,
         )
     };
-    static mut GPIO0: GPIODriver = unsafe { GPIODriver::new(0, GPIOFunction::Alt0) };
+    let mut GPIO0: GPIODriver = unsafe { GPIODriver::new(0, GPIOFunction::Alt0) };
     uart_manager.register_driver(&mut UART);
     register_console(&mut UART);
-    //crate::println!("Console registered successfully!\n");
-    //crate::println!("Starting driver initialization...\n");
     GPIO0.init();
     uart_manager.init_drivers();
     crate::println!("Drivers initialized successfully!\n");
 }
 
 pub trait InitDriverTrait {
-    unsafe fn init_driver(&mut self) {}
+    unsafe fn init_driver(&mut self);
+    unsafe fn clear_driver(&mut self);
 }
 pub trait MutexControll
 where

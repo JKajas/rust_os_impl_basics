@@ -1,4 +1,4 @@
-use core::ops::RangeBounds;
+use core::ops::{Drop, RangeBounds};
 
 use crate::bsp::common::{MIMODerefWrapper, Permission, Register, RegisterInterface};
 use crate::registers;
@@ -176,6 +176,10 @@ enum GPIOLevel {
     High,
     Low,
 }
+enum EventState {
+    NoEvent,
+    EventOccured,
+}
 impl RegisterInterface for Registers {}
 
 type RegisterMapped = MIMODerefWrapper<Registers>;
@@ -189,7 +193,7 @@ impl GPIOInner {
     const unsafe fn new(pin: u32, function: GPIOFunction) -> GPIOInner {
         Self {
             pin,
-            registers: RegisterMapped::new(0x4_7E20_000),
+            registers: RegisterMapped::new(0x0_FE20_000),
             function,
             level: GPIOLevel::Low,
         }
@@ -203,7 +207,7 @@ impl GPIOInner {
             .unwrap();
         self.registers.write_to_reg(
             self.match_function_reg(),
-            state | ((self.function as u8) << offset),
+            state | ((self.function as u32) << offset),
         );
     }
     unsafe fn set_output(&self) {
@@ -211,22 +215,39 @@ impl GPIOInner {
             .registers
             .read_reg::<u32>(self.match_output_reg())
             .unwrap();
-        self.registers
-            .write_to_reg(self.match_output_reg(), state | (1 << self.pin));
+        if self.pin < 32 {
+            self.registers
+                .write_to_reg(self.match_output_reg(), state | (1 << self.pin));
+        } else {
+            self.registers
+                .write_to_reg(self.match_output_reg(), state | (1 << (self.pin - 32)));
+        }
     }
-    fn clear_set(&self) {}
+    unsafe fn clear_output(&self) {
+        let state = self
+            .registers
+            .read_reg::<u32>(self.match_clear_reg())
+            .unwrap();
+        if self.pin < 32 {
+            self.registers
+                .write_to_reg(self.match_clear_reg(), state | (1 << self.pin));
+        } else {
+            self.registers
+                .write_to_reg(self.match_clear_reg(), state | (1 << (self.pin - 32)));
+        }
+    }
     unsafe fn get_level(&mut self) {
         let state = self
             .registers
             .read_reg::<u32>(self.match_level_reg())
             .unwrap();
-        if self.pin < 32 && (state == 1 << self.pin) {
+        if self.pin < 32 && (state & (1 << self.pin) == 1 << self.pin) {
             self.level = GPIOLevel::High;
         }
         if self.pin < 32 {
             self.level = GPIOLevel::Low;
         }
-        if self.pin > 32 && (state == 1 << (self.pin - 32)) {
+        if self.pin > 32 && (state & (1 << self.pin) == 1 << (self.pin - 32)) {
             self.level = GPIOLevel::High;
         }
         if self.pin > 32 {
@@ -234,7 +255,26 @@ impl GPIOInner {
         }
         panic!("No pin detected")
     }
-    fn set_level(&self) {}
+    unsafe fn check_if_event_occured(&self) -> EventState {
+        let state = self
+            .registers
+            .read_reg::<u32>(self.match_event_detect_register())
+            .unwrap();
+        if self.pin < 32 && (state & (1 << self.pin) == 1 << self.pin) {
+            return EventState::EventOccured;
+        }
+        if self.pin < 32 {
+            return EventState::NoEvent;
+        }
+        if self.pin > 32 && (state == 1 << (self.pin - 32)) {
+            return EventState::EventOccured;
+        }
+        if self.pin > 32 {
+            return EventState::NoEvent;
+        }
+        panic!("No pin detected")
+    }
+
     fn match_function_reg(&self) -> Register {
         match self.pin {
             _ if self.pin >= 0 || self.pin <= 9 => Registers::GPFSEL0,
@@ -273,12 +313,27 @@ impl GPIOInner {
             _ => panic!("Not supported GPIO or register"),
         }
     }
+    fn match_event_detect_register(&self) -> Register {
+        let first_segment = 0..31;
+        let second_segment = 31..57;
+        match self.pin {
+            _ if first_segment.contains(&self.pin) => Registers::GPEDS0,
+            _ if second_segment.contains(&self.pin) => Registers::GPEDS1,
+            _ => panic!("Not supported GPIO or register"),
+        }
+    }
 }
 
 impl InitDriverTrait for GPIOInner {
     unsafe fn init_driver(&mut self) {
         self.set_output();
         self.set_function_select();
+        self.get_level();
+        crate::println!("GPIO {} initialized!", self.pin);
+    }
+    unsafe fn clear_driver(&mut self) {
+        self.clear_output();
+        crate::println!("GPIO {} cleared!", self.pin)
     }
 }
 
@@ -287,11 +342,19 @@ pub struct GPIODriver {
 }
 impl GPIODriver {
     pub const unsafe fn new(pin: u32, function: GPIOFunction) -> GPIODriver {
+        if pin > 57 {
+            panic!("No supported pin")
+        }
         Self {
             inner: NullLock::new(GPIOInner::new(pin, function)),
         }
     }
     pub unsafe fn init(&self) {
-        self.inner.lock(|t| t.init_driver());
+        self.inner.lock(|driver| driver.init_driver());
+    }
+}
+impl Drop for GPIODriver {
+    fn drop(&mut self) {
+        unsafe { self.inner.lock(|driver| driver.clear_driver()) }
     }
 }

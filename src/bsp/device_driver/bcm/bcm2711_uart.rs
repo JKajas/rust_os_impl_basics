@@ -342,6 +342,7 @@ impl InitDriverTrait for UartInner {
         // Set Stop bit
         self.set_stop_bits(None);
     }
+    unsafe fn clear_driver(&mut self) {}
 }
 impl Uart {
     pub const unsafe fn new(
