@@ -21,7 +21,7 @@ pub unsafe fn init_drivers() {
             9600,
         )
     };
-    let mut GPIO0: GPIODriver = unsafe { GPIODriver::new(0, GPIOFunction::Alt0) };
+    let mut GPIO0: GPIODriver = unsafe { GPIODriver::new(2, GPIOFunction::Alt0) };
     uart_manager.register_driver(&mut UART);
     register_console(&mut UART);
     GPIO0.init();

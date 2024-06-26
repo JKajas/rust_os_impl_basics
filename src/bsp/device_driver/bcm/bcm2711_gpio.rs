@@ -211,29 +211,21 @@ impl GPIOInner {
         );
     }
     unsafe fn set_output(&self) {
-        let state = self
-            .registers
-            .read_reg::<u32>(self.match_output_reg())
-            .unwrap();
         if self.pin < 32 {
             self.registers
-                .write_to_reg(self.match_output_reg(), state | (1 << self.pin));
+                .write_to_reg(self.match_output_reg(), 1 << self.pin);
         } else {
             self.registers
-                .write_to_reg(self.match_output_reg(), state | (1 << (self.pin - 32)));
+                .write_to_reg(self.match_output_reg(), 1 << (self.pin - 32));
         }
     }
     unsafe fn clear_output(&self) {
-        let state = self
-            .registers
-            .read_reg::<u32>(self.match_clear_reg())
-            .unwrap();
         if self.pin < 32 {
             self.registers
-                .write_to_reg(self.match_clear_reg(), state | (1 << self.pin));
+                .write_to_reg(self.match_clear_reg(), 1 << self.pin);
         } else {
             self.registers
-                .write_to_reg(self.match_clear_reg(), state | (1 << (self.pin - 32)));
+                .write_to_reg(self.match_clear_reg(), 1 << (self.pin - 32));
         }
     }
     unsafe fn get_level(&mut self) {
@@ -243,15 +235,19 @@ impl GPIOInner {
             .unwrap();
         if self.pin < 32 && (state & (1 << self.pin) == 1 << self.pin) {
             self.level = GPIOLevel::High;
+            return;
         }
         if self.pin < 32 {
             self.level = GPIOLevel::Low;
+            return;
         }
         if self.pin > 32 && (state & (1 << self.pin) == 1 << (self.pin - 32)) {
             self.level = GPIOLevel::High;
+            return;
         }
         if self.pin > 32 {
             self.level = GPIOLevel::Low;
+            return;
         }
         panic!("No pin detected")
     }
