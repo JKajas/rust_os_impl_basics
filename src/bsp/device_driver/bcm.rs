@@ -34,6 +34,11 @@ pub unsafe fn init_drivers() {
     uart_manager.register_driver(&mut UART);
     register_console(&mut UART);
     uart_manager.init_drivers();
+    // GPIO SECTION
+    let mut GPIO2: GPIODriver = unsafe { GPIODriver::new(2, GPIOFunction::Alt0, PullResistor::Up) };
+    GPIO2.init();
+    let mut GPIO3: GPIODriver = unsafe { GPIODriver::new(3, GPIOFunction::Alt0, PullResistor::Up) };
+    GPIO3.init();
     // I2C Section
     let i2c_manager = i2c_manager();
     static mut I2C: I2C = I2C::new(0x0_FE80_4000, 100_000, 3);

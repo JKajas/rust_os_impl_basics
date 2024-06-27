@@ -1,6 +1,5 @@
 use crate::{
     bsp::common::{MIMODerefWrapper, Permission, Register, RegisterInterface},
-    console::interface::Write,
     registers,
     synchronization::{interface::Mutex, NullLock},
 };
@@ -14,7 +13,7 @@ registers!(
     (REGISTER_NAME(S), OFFSET(0x04), PERM(Permission::ReadWrite)),
     (
         REGISTER_NAME(DLEN),
-        OFFSET(0x04),
+        OFFSET(0x08),
         PERM(Permission::ReadWrite)
     ),
     (REGISTER_NAME(A), OFFSET(0x0c), PERM(Permission::ReadWrite)),
@@ -84,7 +83,7 @@ impl I2CInner {
         let state = self.registers.read_reg::<u32>(Registers::C).unwrap();
         self.registers
             .write_to_reg::<u32>(Registers::C, state | (0b11 << 4))
-            .unwrap()
+            .unwrap();
     }
     unsafe fn read_fifo<const DATA_LENGTH: usize>(&self) -> [u8; DATA_LENGTH] {
         let mut data: [u8; DATA_LENGTH] = [0; DATA_LENGTH];
@@ -108,11 +107,11 @@ impl I2CInner {
     }
     unsafe fn set_timeout(&self) {
         self.registers
-            .write_to_reg::<u16>(Registers::CLKT, self.timeout);
+            .write_to_reg(Registers::CLKT, self.timeout as u32);
     }
     unsafe fn set_data_length(&self) {
         self.registers
-            .write_to_reg::<usize>(Registers::DLEN, self.data_length)
+            .write_to_reg(Registers::DLEN, self.data_length)
             .unwrap();
     }
 
@@ -124,33 +123,40 @@ impl I2CInner {
         self.set_data_length();
         self.clear_fifo();
         self.registers
-            .write_to_reg::<u8>(Registers::A, slave_addr)
+            .write_to_reg(Registers::A, slave_addr as u32)
             .unwrap();
         self.set_transfer_type(TransferType::Read);
         self.start_transfer();
         self.read_fifo::<DATA_LENGTH>();
     }
+    unsafe fn clear_status(&self) {
+        self.registers.write_to_reg(Registers::S, 1 << 1).unwrap();
+        self.registers.write_to_reg(Registers::S, 1 << 8).unwrap();
+        self.registers.write_to_reg(Registers::S, 1 << 9).unwrap()
+    }
+
     unsafe fn write_slave(&mut self, slave_addr: u8, data: &str) {
-        if let 1 = slave_addr & 1 << 7 {
+        if let 128 = slave_addr & 1 << 7 {
             panic!("I2C bus supports only 7 bits address")
         }
+        self.set_transfer_type(TransferType::Write);
+        self.registers
+            .write_to_reg(Registers::A, slave_addr as u32)
+            .unwrap();
         self.data_length = data.len();
         self.set_data_length();
         self.clear_fifo();
-        self.registers
-            .write_to_reg::<u8>(Registers::A, slave_addr)
-            .unwrap();
-        self.set_transfer_type(TransferType::Write);
         for c in data.chars() {
             self.registers.write_to_reg(Registers::FIFO, c).unwrap()
         }
+        self.clear_status();
         self.start_transfer();
     }
 
     unsafe fn set_clock_rate(&self) {
         let divisor = CORE_CLK / self.clock_rate;
         self.registers
-            .write_to_reg::<u16>(Registers::DIV, divisor as u16)
+            .write_to_reg(Registers::DIV, divisor)
             .unwrap();
     }
 }
@@ -159,7 +165,7 @@ impl InitDriverTrait for I2CInner {
         self.registers.write_to_reg(Registers::C, 1 << 15).unwrap();
         self.set_clock_rate();
         self.set_timeout();
-        self.write_slave(0xFF, "I2C Init Done")
+        self.write_slave(0x7f, "I2C Init Done")
     }
     unsafe fn clear_driver(&mut self) {}
 }

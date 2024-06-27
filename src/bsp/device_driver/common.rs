@@ -1,4 +1,4 @@
-use core::ptr::{read_volatile, write_volatile};
+use core::ptr::{read_volatile, write, write_volatile};
 use core::{marker::PhantomData, ops};
 pub struct MIMODerefWrapper<T> {
     start_addr: usize,
