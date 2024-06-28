@@ -381,7 +381,7 @@ impl InitDriverTrait for GPIOInner {
     }
     unsafe fn clear_driver(&mut self) {
         self.clear_output();
-        crate::println!("GPIO {} cleared!", self.pin)
+        //crate::println!("GPIO {} cleared!\n", self.pin)
     }
 }
 

@@ -1,6 +1,7 @@
 /dts-v1/;
 /plugin/;
 /{
+  // SET UART CLOCK
   fragment@0 {
     target=<0x43>;
     __overlay__ {
@@ -9,8 +10,16 @@
       status = "okey";
     };
   };
+  // DISABLE BLUETOOTH
   fragment@1 {
     target=<0x41>;
     status= "disabled";
+  };
+  // ENABLE I2C Bus
+  fragment@2 {
+    target=<0x48>;
+    __overlay__ {
+      status = "okey";
+    };
   };
 };
