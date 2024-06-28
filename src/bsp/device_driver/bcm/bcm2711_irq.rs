@@ -19,7 +19,6 @@ const MIMOIRQ: [*const u32; 5] = [
 #[no_mangle]
 #[link_section = ".text.handlers"]
 async unsafe fn irq_handler() -> () {
-    panic!("Test");
     let ids: [u32; 5] = core::array::from_fn(|i| read_volatile(MIMOIRQ[i]));
     if (ids[0] & !(0 << 15)).count_ones() > 0 {}
     if ids[0] & 1 << 16 == 1 << 16 {}

@@ -1,9 +1,12 @@
-use crate::{bsp::common::MIMODerefWrapper, synchronization::NullLock};
+use crate::registers;
+use crate::{
+    bsp::common::{MIMODerefWrapper, Permission, Register, RegisterInterface},
+    synchronization::NullLock,
+};
 
 use core::{
     arch::asm,
     fmt::{self, Write},
-    ptr::{read_volatile, write_volatile},
 };
 use fdt::Fdt;
 
@@ -30,11 +33,6 @@ pub unsafe fn read_uart_clock() -> &'static u32 {
     }
 }
 
-enum Permission {
-    ReadOnly,
-    WriteOnly,
-    ReadWrite,
-}
 pub enum ParityBit {
     None,
     Odd,
@@ -51,21 +49,7 @@ pub enum StopBits {
     One,
     Two,
 }
-struct Register {
-    offset: u8,
-    permission: Permission,
-}
 
-macro_rules! registers {
-    ($((REGISTER_NAME($register_name:ident), OFFSET($register_offset:expr), PERM($permission:expr))),+) => {
-        #[allow(non_snake_case)]
-        struct Registers{}
-        impl Registers{
-
-            $(const $register_name: Register = Register{offset: $register_offset, permission: $permission};)+
-        }
-    }
-}
 registers!(
     (REGISTER_NAME(DR), OFFSET(0x00), PERM(Permission::ReadWrite)), // Data register
     (
@@ -147,35 +131,7 @@ registers!(
     )  // Test Data reg
 );
 
-impl Registers {
-    unsafe fn write_to_reg<T>(&self, register: Register, data: T) -> Result<(), ()> {
-        let instruction = {
-            let register_address: isize =
-                self as *const Registers as isize + register.offset as isize;
-            write_volatile(register_address as *mut T, data);
-            Ok(())
-        };
-        match register.permission {
-            Permission::ReadOnly => panic!("Register is write only"),
-            Permission::WriteOnly => instruction,
-            Permission::ReadWrite => instruction,
-        }
-    }
-
-    unsafe fn read_reg<T>(&self, register: Register) -> Result<T, ()> {
-        let instruction = {
-            let register_address: isize =
-                self as *const Registers as isize + register.offset as isize;
-            let result = read_volatile(register_address as *mut T);
-            Ok(result)
-        };
-        match register.permission {
-            Permission::ReadOnly => instruction,
-            Permission::WriteOnly => panic!("Register is read only"),
-            Permission::ReadWrite => instruction,
-        }
-    }
-}
+impl RegisterInterface for Registers {}
 type RegisterMapped = MIMODerefWrapper<Registers>;
 pub struct UartInner {
     chars_written: usize,
@@ -386,6 +342,7 @@ impl InitDriverTrait for UartInner {
         // Set Stop bit
         self.set_stop_bits(None);
     }
+    unsafe fn clear_driver(&mut self) {}
 }
 impl Uart {
     pub const unsafe fn new(

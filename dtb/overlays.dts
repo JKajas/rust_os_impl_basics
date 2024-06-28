@@ -6,6 +6,11 @@
     __overlay__ {
       assigned-clocks = <0x08 0x13>;
       assigned-clocks-rates = <48000000>;
+      status = "okey";
     };
+  };
+  fragment@1 {
+    target=<0x41>;
+    status= "disabled";
   };
 };
