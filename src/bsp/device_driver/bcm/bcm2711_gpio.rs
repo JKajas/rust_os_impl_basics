@@ -180,6 +180,13 @@ enum EventState {
     NoEvent,
     EventOccured,
 }
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum PullResistor {
+    None = 0,
+    Up = 1,
+    Down = 2,
+}
 impl RegisterInterface for Registers {}
 
 type RegisterMapped = MIMODerefWrapper<Registers>;
@@ -188,19 +195,33 @@ pub struct GPIOInner {
     registers: RegisterMapped,
     function: GPIOFunction,
     level: GPIOLevel,
+    pull_resistor: PullResistor,
 }
 impl GPIOInner {
-    const unsafe fn new(pin: u32, function: GPIOFunction) -> GPIOInner {
+    const unsafe fn new(
+        pin: u32,
+        function: GPIOFunction,
+        pull_resistor: PullResistor,
+    ) -> GPIOInner {
         Self {
             pin,
             registers: RegisterMapped::new(0x0_FE20_000),
             function,
             level: GPIOLevel::Low,
+            pull_resistor,
         }
     }
 
     unsafe fn set_function_select(&self) {
-        let offset = self.pin * 3;
+        let absolute_pin = match self.pin {
+            _ if self.pin > 10 && self.pin < 20 => self.pin - 10,
+            _ if self.pin > 20 && self.pin < 30 => self.pin - 20,
+            _ if self.pin > 30 && self.pin < 40 => self.pin - 30,
+            _ if self.pin > 40 && self.pin < 50 => self.pin - 40,
+            _ if self.pin > 50 && self.pin < 60 => self.pin - 50,
+            _ => self.pin,
+        };
+        let offset = absolute_pin * 3; // Fix for numbers greater than 16
         let state = self
             .registers
             .read_reg::<u32>(self.match_function_reg())
@@ -270,6 +291,23 @@ impl GPIOInner {
         }
         panic!("No pin detected")
     }
+    unsafe fn set_pull_resistor(&self) {
+        let absolute_pin = match self.pin {
+            _ if self.pin >= 16 && self.pin <= 31 => self.pin - 16,
+            _ if self.pin >= 32 && self.pin <= 47 => self.pin - 32,
+            _ if self.pin >= 47 && self.pin <= 57 => self.pin - 48,
+            _ => self.pin,
+        };
+        let offset = absolute_pin * 2;
+        let state = self
+            .registers
+            .read_reg::<u32>(self.match_pull_resistor_reg())
+            .unwrap();
+        self.registers.write_to_reg(
+            self.match_pull_resistor_reg(),
+            state | ((self.pull_resistor as u32) << offset),
+        );
+    }
 
     fn match_function_reg(&self) -> Register {
         match self.pin {
@@ -291,6 +329,20 @@ impl GPIOInner {
             _ => panic!("Not supported GPIO or register"),
         }
     }
+    fn match_pull_resistor_reg(&self) -> Register {
+        let first_segment = 0..16;
+        let second_segment = 16..32;
+        let third_segment = 32..48;
+        let fourth_segment = 48..58;
+        match self.pin {
+            _ if first_segment.contains(&self.pin) => Registers::GPIO_PUP_PDN_CNTRL_REG0,
+            _ if second_segment.contains(&self.pin) => Registers::GPIO_PUP_PDN_CNTRL_REG1,
+            _ if third_segment.contains(&self.pin) => Registers::GPIO_PUP_PDN_CNTRL_REG2,
+            _ if fourth_segment.contains(&self.pin) => Registers::GPIO_PUP_PDN_CNTRL_REG3,
+            _ => panic!("Not supported GPIO or register"),
+        }
+    }
+
     fn match_clear_reg(&self) -> Register {
         let first_segment = 0..31;
         let second_segment = 31..57;
@@ -324,8 +376,8 @@ impl InitDriverTrait for GPIOInner {
     unsafe fn init_driver(&mut self) {
         self.set_output();
         self.set_function_select();
+        self.set_pull_resistor();
         self.get_level();
-        crate::println!("GPIO {} initialized!", self.pin);
     }
     unsafe fn clear_driver(&mut self) {
         self.clear_output();
@@ -337,12 +389,16 @@ pub struct GPIODriver {
     inner: NullLock<GPIOInner>,
 }
 impl GPIODriver {
-    pub const unsafe fn new(pin: u32, function: GPIOFunction) -> GPIODriver {
+    pub const unsafe fn new(
+        pin: u32,
+        function: GPIOFunction,
+        pull_resistor: PullResistor,
+    ) -> GPIODriver {
         if pin > 57 {
             panic!("No supported pin")
         }
         Self {
-            inner: NullLock::new(GPIOInner::new(pin, function)),
+            inner: NullLock::new(GPIOInner::new(pin, function, pull_resistor)),
         }
     }
     pub unsafe fn init(&self) {
